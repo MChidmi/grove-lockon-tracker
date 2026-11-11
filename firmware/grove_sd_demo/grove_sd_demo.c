@@ -71,11 +71,12 @@ static void reply_help(void)
         "  AT+PREVIEW=<gray>[,<w>[,<fast>[,<fps>]]]   live view: gray 1|0, 320|640, fast camera mode 1|0, 15|30|45|60|70",
         "  AT+MOTION=<on>,<action>[,<pin>[,<ms>[,<sens>]]] / AT+MOTION?  motion detection (action 0 none, 1 save, 2 pulse)",
         "  AT+MOTIONTEST / AT+PULSE                  run the motion action once / one pulse on the pin",
-        "  AT+FRAME?                                 the latest live frame as raw grayscale (base64)",
+        "  AT+FRAME?                                 the latest live frame, raw (base64): Y, or Y+U+V in colour mode",
         "  AT+FORMAT=\"FAT32\"|\"exFAT\"              erase and format the SD card",
         "  AT+CAMRESET                               power-cycle and set up the camera again",
         "  AT+TRACK=1[,<w>,<h>[,<x>,<y>]] / =0 / AT+TRACK? lock on a box of the live view (default centre) / stop / position",
         "  AT+TRACKBTN=<pin>[,<level>]               a header pin (0 PA0, 1 PB6, 2 PB7) as the lock-on button; -1 off",
+        "  AT+TRACKCOLOR=<0-100> / AT+TRACKCOLOR?     weight of colour in the tracker (colour live view), 0 = brightness only",
         "  AT+VIDEO=<fps> / AT+VIDEO?                live frames sent per second (0 = tracking results only)",
         "  AT+CAMREG?=<reg> / AT+CAMREG=<reg>,<val>  read / write an OV5647 register (diagnostic)",
 #endif

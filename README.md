@@ -14,8 +14,10 @@ it on the web page, which runs entirely in the browser: no server, nothing to in
 ## What's in it
 
 - **Firmware** for the Grove Vision AI V2 (`firmware/`), replacing Seeed's SSCMA firmware:
-  - **Lock-on tracker:** a MOSSE correlation filter with scale search and loss detection, running at
-    the camera's frame rate. It learns the target from one frame and keeps updating as it changes.
+  - **Lock-on tracker:** a MOSSE correlation filter (brightness pattern) with scale search and loss
+    detection, plus a **colour model** (target vs surroundings colour histograms, as in the Staple
+    tracker) when the live view is in colour. It runs at the camera's frame rate, learns the target
+    from one frame and keeps updating as it changes.
   - **Fast camera mode:** the OV5647's own 640×480 mode, tuned to 60–68 fps, with every frame tracked.
   - **Positions-only output:** with video off, only the tracking results cross USB, about 9 KB/s.
   - **A hardware lock-on button** on a header pin.
@@ -34,15 +36,16 @@ it on the web page, which runs entirely in the browser: no server, nothing to in
 
 ## Performance
 
-Measured on the board (QVGA grayscale live view):
+Measured on the board (320×240 live view):
 
 | | |
 |---|---|
 | Camera frame rate | 58.9 fps (60 setting), 68 fps (max) |
-| Tracked positions per second | **59** (60 fps camera, with video); **~64** (max camera, positions only) |
-| Tracker time per frame | ~14 ms on the Cortex-M55 |
+| Tracked positions per second | **59** (60 fps camera, with video); **~64** (max camera, positions only). With the colour model active: **55** / **58** |
+| Tracker time per frame | ~14 ms on the Cortex-M55; the colour model adds ~1.5 ms |
 | USB traffic | ~75 KB/s with video, ~9 KB/s positions only |
 | Accuracy (generated test sequences) | Moving: 0.8 px. Growing/shrinking ×1.9 / ×0.5: ~1 px. Light ±50%: 0.4 px. Rotating 180°: ~6 px. No lock lost in any |
+| Colour vs brightness only (48 generated colour videos from real photos, `sim/track_eval.py`) | Frames on target: **90.5%** vs 81.9%. Look-alikes crossing: 99.9% vs 83.9%. Stretching/tilting: 100% vs 90.2%. Same brightness, other colour: 78.4% vs 63.4%. Turning: 62% vs 48%. Colourless scene: 100% both |
 
 **Limits:**
 - **Exposure.** At 60+ fps the camera can expose for at most ~15 ms, so it needs light. Lower camera

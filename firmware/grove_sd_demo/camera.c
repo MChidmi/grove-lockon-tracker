@@ -45,22 +45,25 @@ extern uint8_t raw_buff[];            /* cis_sensor/cis_ov5647/buffer.c (2 x (12
  * processing, and the processing always gets the newest frame. raw_buff isn't a DMA target
  * in our paths, so it's free for this. */
 #define SLOT_JPEG (128 * 1024)
+#define SLOT_GRAY (640 * 480)
 typedef struct {
-    uint8_t *jpeg, *gray;
+    uint8_t *jpeg, *gray;             /* gray: Y (w x h), then U and V (w/2 x h/2 each) if uv */
     uint32_t size, n;                 /* JPEG size; frame number */
-    int w, h, ready;
+    int w, h, ready, uv;
 } slot_t;
 static slot_t g_slot[2] = {
-    { raw_buff, raw_buff + 2 * SLOT_JPEG, 0, 0, 0, 0, 0 },
-    { raw_buff + SLOT_JPEG, raw_buff + 2 * SLOT_JPEG + 640 * 480, 0, 0, 0, 0, 0 },
+    { raw_buff, raw_buff + 2 * SLOT_JPEG, 0, 0, 0, 0, 0, 0 },
+    { raw_buff + SLOT_JPEG, raw_buff + 2 * SLOT_JPEG + SLOT_GRAY, 0, 0, 0, 0, 0, 0 },
 };
 static int g_busy = -1;               /* slot being processed, -1 = none */
 static uint32_t g_cur_n;              /* frame number of the slot being processed */
 static uint8_t *g_gray;               /* grayscale of the latest processed frame (for FRAME?) */
+static const uint8_t *g_uv;           /* ... its colour (U then V planes), NULL in grayscale mode */
 static int g_gray_w, g_gray_h;        /* its size, 0 = none yet */
 
 /* Object tracking on the live frames (tracker.c). */
 static int g_track_arm;               /* 1: lock on the centre box at the next frame */
+static int g_track_color = TRACK_COLOR_DEFAULT;   /* TRACKCOLOR: colour weight in %, 0 = off */
 static int g_track_bw, g_track_bh;    /* the lock-on box, in frame pixels */
 static int g_track_cx, g_track_cy;    /* ... and its centre (default: the frame centre) */
 static track_result_t g_track;        /* latest result */
@@ -399,6 +402,7 @@ void camera_poll(void)
     g_cur_n = sl->n;
     uint32_t t0 = millis();
     g_gray = sl->gray; g_gray_w = sl->w; g_gray_h = sl->h;
+    g_uv = sl->uv ? sl->gray + sl->w * sl->h : NULL;
     track_poll();
     int moved = motion_frame(sl->jpeg, sl->size);
     /* Every frame is tracked; a frame is only sent when the last one has (nearly) gone out
@@ -455,6 +459,10 @@ static int grab_frame(void)
     uint32_t addr, size;
     cisdp_get_jpginfo(&size, &addr);
     uint32_t ysize = (uint32_t)g_preview_w * PREVIEW_H();
+    /* In colour mode the camera's second output (WDMA3) is YUV420: Y, then U, then V planes.
+     * The tracker's colour model uses U and V, when they fit in the slot (QVGA: yes). */
+    int uv = !g_preview_gray && ysize * 3 / 2 <= SLOT_GRAY;
+    if (uv) ysize = ysize * 3 / 2;
     if (size > SLOT_JPEG) {                 /* can't happen at 10x compression; skip it */
         sensordplib_retrigger_capture();
         g_t_retrig = millis();
@@ -469,6 +477,7 @@ static int grab_frame(void)
     sl->size = size;
     sl->w = g_preview_w;
     sl->h = PREVIEW_H();
+    sl->uv = uv;
     sl->n = ++g_proc_count;
     sl->ready = 1;
     g_sensor_fresh = 0;                     /* streaming: exposure follows */
@@ -504,10 +513,10 @@ static void cmd_camreg(const proto_cmd_t *c, int query)
 static void send_trackpos(void)
 {
     if (track_state() == TRACK_OFF) return;
-    char line[200];
+    char line[240];
     int n = snprintf(line, sizeof(line), "\r{\"type\":1,\"name\":\"TRACKPOS\",\"code\":0,\"data\":{\"n\":%lu",
                      (unsigned long)g_cur_n);
-    char rest[160];
+    char rest[200];
     track_json(rest, sizeof(rest));          /* ,"boxes":[...],"track":{...} */
     n += snprintf(line + n, sizeof(line) - n, "%s}}\n", rest);
     proto_write(line, (uint32_t)n);
@@ -545,9 +554,9 @@ static void track_json(char *out, size_t n)
     int cx = (int)(g_track.cx + 0.5f), cy = (int)(g_track.cy + 0.5f), w = (int)(g_track.w + 0.5f), h = (int)(g_track.h + 0.5f);
     int conf = (int)(g_track.psr * 10.0f);
     if (conf > 100) conf = 100;
-    snprintf(out, n, ",\"boxes\":[[%d,%d,%d,%d,%d,0]],\"track\":{\"state\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"psr\":%d.%d,\"ms\":%lu}",
+    snprintf(out, n, ",\"boxes\":[[%d,%d,%d,%d,%d,0]],\"track\":{\"state\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"psr\":%d.%d,\"ms\":%lu,\"color\":%d}",
              cx, cy, w, h, st == TRACK_LOCKED ? conf : 0, track_state_name(st), cx, cy, w, h,
-             (int)g_track.psr, (int)(g_track.psr * 10) % 10, (unsigned long)g_track_ms);
+             (int)g_track.psr, (int)(g_track.psr * 10) % 10, (unsigned long)g_track_ms, g_track.color);
 }
 
 /* Sends a TRACK event when the state changes (locked / lost / off). */
@@ -571,7 +580,8 @@ static void track_poll(void)
 {
     if (g_track_arm) {
         g_track_arm = 0;
-        track_start(g_gray, g_gray_w, g_gray_h, g_track_cx, g_track_cy, g_track_bw, g_track_bh);
+        track_start(g_gray, g_uv, g_gray_w, g_gray_h, g_track_cx, g_track_cy, g_track_bw, g_track_bh);
+        g_track.color = g_uv && g_track_color > 0;
         g_track.state = TRACK_LOCKED;
         g_track.cx = g_track_cx; g_track.cy = g_track_cy; g_track.w = g_track_bw; g_track.h = g_track_bh;
         g_track.psr = 99;
@@ -580,7 +590,7 @@ static void track_poll(void)
     }
     if (track_state() == TRACK_OFF) return;
     uint32_t t0 = millis();
-    track_update(g_gray, g_gray_w, g_gray_h, &g_track);
+    track_update(g_gray, g_uv, g_gray_w, g_gray_h, &g_track);
     g_track_ms = millis() - t0;
     track_event(g_track.state);
     if (g_track.state == TRACK_LOST) {
@@ -699,6 +709,7 @@ static void cmd_track(const proto_cmd_t *c, int query)
         jw_key("h"); jw_int((long)(g_track.h + 0.5f));
         jw_key("psr"); jw_int((long)(g_track.psr * 10));   /* x10 */
         jw_key("ms"); jw_int((long)g_track_ms);
+        jw_key("color"); jw_int(g_track.color);
     } else if (g_track_arm) {
         jw_key("w"); jw_int(g_track_bw);
         jw_key("h"); jw_int(g_track_bh);
@@ -1117,17 +1128,19 @@ static void cmd_camreset(void)
 
 int camera_is_streaming(void) { return g_streaming; }
 
-/* FRAME?: one grayscale 320x240 frame of the whole view as base64 (a check of the tracker's
- * input path). Stops the live view meanwhile. */
+/* FRAME?: the tracker's input, raw, as base64 (a check of the tracker's input path): the live
+ * frame's Y plane, plus its U and V planes in colour mode ("format":"yuv420"). Without the live
+ * view: one 320x240 grayscale frame, taken for it. */
 static void cmd_frame(void)
 {
     camera_init();
     if (!g_sensor_ok) { reply_msg("FRAME?", PE_IO, "The camera is not answering"); return; }
     const uint8_t *y;
-    int w, h, err = 0;
+    int w, h, err = 0, yuv = 0;
     uint32_t t0 = millis();
     if (g_streaming && g_gray_w) {          /* the live view's latest frame */
         y = g_gray; w = g_gray_w; h = g_gray_h;
+        yuv = g_uv != NULL;                 /* colour mode: the U and V planes follow */
     } else {
         uint32_t addr = 0, size = 0;
         err = dp_start(MODE_TRACK, 0, 0, 1);
@@ -1139,11 +1152,11 @@ static void cmd_frame(void)
         if (!err) SCB_InvalidateDCache_by_Addr((void *)y, w * h);
     }
     if (!err) {
-        char head[96];
-        int n = snprintf(head, sizeof(head), "\r{\"type\":0,\"name\":\"FRAME?\",\"code\":0,\"data\":{\"width\":%d,\"height\":%d,\"ms\":%lu,\"image\":\"",
-                         w, h, (unsigned long)(millis() - t0));
+        char head[128];
+        int n = snprintf(head, sizeof(head), "\r{\"type\":0,\"name\":\"FRAME?\",\"code\":0,\"data\":{\"width\":%d,\"height\":%d,\"ms\":%lu,\"format\":\"%s\",\"image\":\"",
+                         w, h, (unsigned long)(millis() - t0), yuv ? "yuv420" : "y");
         proto_write(head, (uint32_t)n);
-        uint32_t total = (uint32_t)w * h;
+        uint32_t total = (uint32_t)w * h * (yuv ? 3u : 2u) / 2u;
         for (uint32_t off = 0; off < total; off += B64_IN_CHUNK) {
             uint32_t len = total - off < B64_IN_CHUNK ? total - off : B64_IN_CHUNK;
             proto_write(g_b64, b64_encode(y + off, len, g_b64));
@@ -1211,6 +1224,21 @@ int camera_handle(const proto_cmd_t *c)
     else if (!strcmp(n, "TRACK")) cmd_track(c, 0);
     else if (!strcmp(n, "TRACK?")) cmd_track(c, 1);
     else if (!strcmp(n, "TRACKBTN")) cmd_trackbtn(c);
+    else if (!strcmp(n, "TRACKCOLOR") || !strcmp(n, "TRACKCOLOR?")) {
+        long v = g_track_color;
+        if (n[10] != '?' && (c->argc < 1 || proto_arg_int(c, 0, &v) || v < 0 || v > 100)) {
+            reply_msg("TRACKCOLOR", PE_INVAL, "Usage: TRACKCOLOR=<weight of colour in the tracker, 0-100 %; 0 = brightness only>");
+        } else {
+            g_track_color = (int)v;
+            track_set_color_weight(g_track_color / 100.0f);   /* applies from the next lock-on */
+            jw_begin(0, n, PE_OK);
+            jw_obj_open();
+            jw_key("weight"); jw_int(g_track_color);
+            jw_key("available"); jw_int(g_uv != NULL || (!g_preview_gray && g_preview_w * PREVIEW_H() * 3 / 2 <= SLOT_GRAY));
+            jw_obj_close();
+            jw_end();
+        }
+    }
     else if (!strcmp(n, "VIDEO") || !strcmp(n, "VIDEO?")) {
         long v = g_video_fps;
         if (n[5] != '?' && (c->argc < 1 || proto_arg_int(c, 0, &v) || v < 0 || v > 60)) {

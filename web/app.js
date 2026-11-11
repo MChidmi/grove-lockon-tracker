@@ -9,7 +9,7 @@ const canvas = $('#hud');
 const ctx = canvas.getContext('2d');
 
 // ---- preferences (per browser) ------------------------------------------------------------
-const prefs = { box: 4, cam: 60, video: 30, color: true };
+const prefs = { box: 4, cam: 60, video: 30, color: true, trk: 60 };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem('lockon-prefs') || '{}')); } catch { /* defaults */ }
 const savePrefs = () => { try { localStorage.setItem('lockon-prefs', JSON.stringify(prefs)); } catch { /* fine */ } };
 
@@ -43,6 +43,7 @@ function renderButtons() {
   for (const b of document.querySelectorAll('#g-box button')) b.classList.toggle('on', Number(b.dataset.box) === prefs.box);
   for (const b of document.querySelectorAll('#g-cam button')) b.classList.toggle('on', Number(b.dataset.cam) === prefs.cam);
   for (const b of document.querySelectorAll('#g-color button')) b.classList.toggle('on', (b.dataset.color === '1') === prefs.color);
+  for (const b of document.querySelectorAll('#g-trk button')) b.classList.toggle('on', Number(b.dataset.trk) === prefs.trk);
   for (const b of document.querySelectorAll('#g-video button')) b.classList.toggle('on', Number(b.dataset.video) === prefs.video);
 }
 
@@ -241,6 +242,7 @@ async function startStream() {
   ui.frameW = p.width ?? 320;
   ui.frameH = p.height ?? 240;
   await ui.link.command(`VIDEO=${prefs.video}`);
+  await ui.link.command(`TRACKCOLOR=${prefs.trk}`).catch(() => {});      // older firmware: no colour model
   await ui.link.command('INVOKE=-1,0,0', 5000);
 }
 
@@ -295,6 +297,12 @@ function previewCmd() {
   return `PREVIEW=${prefs.color ? 0 : 1},320,1,${prefs.cam}`;
 }
 
+async function setTrackerColor(v) {
+  prefs.trk = v; savePrefs(); renderButtons();
+  if (ui.link) try { await ui.link.command(`TRACKCOLOR=${v}`); } catch (err) { msg(err.message, true); }
+  if (ui.track.state === 'locked') msg('The tracker setting applies from the next lock-on.');
+}
+
 async function setColor(color) {
   prefs.color = color; savePrefs(); renderButtons();
   if (ui.link) try { await ui.link.command(previewCmd()); } catch (err) { msg(err.message, true); }
@@ -312,6 +320,7 @@ $('#b-release').addEventListener('click', release);
 for (const b of document.querySelectorAll('#g-box button')) b.addEventListener('click', () => { prefs.box = Number(b.dataset.box); savePrefs(); renderButtons(); });
 for (const b of document.querySelectorAll('#g-cam button')) b.addEventListener('click', () => setCam(Number(b.dataset.cam)));
 for (const b of document.querySelectorAll('#g-color button')) b.addEventListener('click', () => setColor(b.dataset.color === '1'));
+for (const b of document.querySelectorAll('#g-trk button')) b.addEventListener('click', () => setTrackerColor(Number(b.dataset.trk)));
 for (const b of document.querySelectorAll('#g-video button')) b.addEventListener('click', () => setVideo(Number(b.dataset.video)));
 document.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea')) return;
@@ -432,6 +441,7 @@ function draw() {
     ctx.stroke();
     label(`TGT ${Math.round(t.x)},${Math.round(t.y)}`, x, Math.max(2 * u, y - 18 * u), `rgb(${GREEN})`, fs);
     label('LOCKED', pad, pad, `rgb(${GREEN})`, 16 * u);
+    if (t.color) label('+COLOR', pad + 78 * u, pad + 3 * u, `rgb(${AMBER})`, 11 * u);
     // confidence bar
     const psr = Math.max(0, Math.min(1, ((t.psr ?? 0) - 4) / 20));
     ctx.strokeStyle = `rgba(${GREEN},0.6)`;
@@ -511,7 +521,7 @@ class DemoBoard extends EventTarget {
       this.bad = 0;
       this.emit('track', { ...this.track });
     }
-    const tr = this.track ? { ...this.track, x: Math.round(this.track.x), y: Math.round(this.track.y), w: Math.round(this.track.w), h: Math.round(this.track.h), ms: 14 } : undefined;
+    const tr = this.track ? { ...this.track, x: Math.round(this.track.x), y: Math.round(this.track.y), w: Math.round(this.track.w), h: Math.round(this.track.h), ms: 14, color: this.track.state === 'locked' && prefs.color && prefs.trk > 0 ? 1 : 0 } : undefined;
     const videoDue = this.video > 0 && this.n % Math.max(1, Math.round(60 / this.video)) === 0;
     if (videoDue) {
       const g = this.g;

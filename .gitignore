@@ -6,3 +6,4 @@ firmware/out/
 firmware/out-*.log
 *.tmp.mjs
 __pycache__/
+firmware/sim/track_harness

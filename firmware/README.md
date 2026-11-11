@@ -161,7 +161,8 @@ Measured (QVGA grayscale live view): 58.9 frames per second processed, 35 sent w
 
 - **Lock-on:** `TRACK=1`, the page's Lock on button, or a header button (`TRACKBTN`). Whatever is inside the centre box becomes the target.
 - **Each frame:** the window around the last position is correlated with the learned filter at 3 scales. The peak gives the new centre, to a fraction of a pixel, and the size. The filter then learns the new appearance a little, which follows gradual rotation, deformation and lighting changes.
-- **Confidence:** the peak-to-sidelobe ratio (PSR). Below 5.5 for 3 frames the target counts as lost: the tracker stops learning and searches a wider window until the target comes back (PSR above 7).
+- **Colour model** (colour live view, `PREVIEW=0,320,…`): MOSSE sees brightness only. In colour mode the WDMA3 copy is YUV420 (Y, then U and V planes), and the tracker also keeps two colour histograms (4 brightness × 16 U × 16 V bins): the target's and its surroundings'. They give each colour a "target" likelihood. Every frame the likelihood over the search window, averaged over the target's size, is blended into MOSSE's response (weight `TRACKCOLOR`, default 60%) before the peak is taken. This is the approach of the Staple tracker (Bertinetto et al., CVPR 2016). The weight is scaled down by how well the histograms separate target from background, so in a dull or dark scene colour steps out of the way. Lost / found still go by MOSSE's PSR alone. Cost on the board: ~1.5 ms per frame (55 instead of 59 positions per second at the 60 fps setting with video).
+- **Confidence:** the peak-to-sidelobe ratio (PSR). Below 5.5 for 8 frames the target counts as lost: the board reports it once and stops tracking.
 - **Speed:** at the default settings the board tracks every camera frame, **about 59 per second**. Live frames go to the page at up to ~30 per second; frames that don't fit on the serial link send only their tracking result, as a `TRACKPOS` event with the same `"track"` field.
 - **Output:** every live frame carries `"track":{"state":"locked","x":…,"y":…,"w":…,"h":…,"psr":…,"ms":…}`. `x`, `y` is the centre of the target in live-frame pixels (320×240 by default). `TRACK` events report state changes (`locked`, `lost`, `off`), and the page draws the box and centre.
 
@@ -172,7 +173,21 @@ Measured:
 | PC, generated 320×240 sequences, 60 frames each | Moving: 0.8 px mean centre error. Growing ×1.9 / shrinking ×0.53: 0.7 / 0.9 px. Light changing ±50%: 0.4 px. Rotating 180° while moving: 5.3 px mean, 12 px max. Fast (4.7 px/frame + rotation + growth): 6.7 px mean, 18 px max. No lock lost in any |
 | Board, still scene | Centre steady to 1 px over 90+ frames, PSR 38–99, 25 ms per frame on the M55. Live view unchanged at ~8 fps (the tracker runs while the next frame is taken) |
 
-`sim/track_harness.c` builds `tracker.c` on a PC and runs it over raw grayscale frames, for testing changes before flashing.
+`sim/track_harness.c` builds `tracker.c` on a PC and runs it over raw YUV420 frames (`-c`: with colour), for testing changes before flashing. `sim/track_eval.py <photo folder>` generates test videos from real photos (moving, turning, deforming, same-brightness, look-alikes crossing, occlusion, light changes, colourless) and scores the tracker with and without colour:
+
+| Scenario (6 videos × 300 frames each) | Brightness only | With colour (60%) |
+|---|---|---|
+| Moving | 84.3% | 94.4% |
+| Turning a full circle | 48.0% | 62.0% |
+| Stretching / tilting | 90.2% | 100% |
+| Same brightness as the background, other colour | 63.4% | 78.4% |
+| Two look-alikes (other colours) crossing | 83.9% | 99.9% |
+| A bar passing over half of it | 85.6% | 89.0% |
+| Light ±40% | 100% | 100% |
+| Nearly colourless scene | 100% | 100% |
+| **All** | **81.9%** | **90.5%** |
+
+(Frames where it was locked within 10 px of the true centre; a lost ends the run.) Turning stays the hardest: the filter tends to follow a textured spot on the object, ~14 px off its centre, that circles round as it turns. Pulling the estimate towards the middle of the target-coloured pixels was tried and made the other cases worse, so it isn't in.
 
 ## Testing without the board
 

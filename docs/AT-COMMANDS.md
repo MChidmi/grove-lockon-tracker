@@ -51,7 +51,7 @@ Seeed's SSCMA firmware, so the same host code can drive both.
 | `PREVIEW=<gray>[,<w>[,<fast>[,<fps>]]]` | `gray` 1 grayscale (default) / 0 colour; `w` 320 (default) or 640; `fast` 1 (default) = the camera's own 640×480 mode, 0 = cropped from the 5 MP mode; `fps` 15, 30, 45, 60 (default) or 70 (= max, 68 fps, anti-flicker off) |
 | `PREVIEW?` | The above, plus `processed` / `sent` frame counters and `wait_ms` / `work_ms` (average time per frame waiting for the camera / working on it, since the last `PREVIEW?`) |
 | `VIDEO=<fps>` / `VIDEO?` | Live frames sent per second at most (1–60, default 30). `0` = tracking results only, the least USB traffic and the lowest latency |
-| `FRAME?` | The latest live frame as raw 8-bit grayscale: `{"width","height","ms","image":"<base64>"}` |
+| `FRAME?` | The tracker's input, raw: `{"width","height","ms","format","image":"<base64>"}`. `format` `y`: 8-bit brightness, w×h. `yuv420` (colour live view at 320×240): brightness, then the U and V planes (w/2×h/2 each), the camera's own layout |
 | `CAMRESET` | Power-cycles the camera and sets it up again: `{"id_power_off","id_power_on","ok"}` (chip id 0x5647 = 22087) |
 | `CAMREG?=<reg>` / `CAMREG=<reg>,<val>` | Diagnostic: read or write an OV5647 register |
 
@@ -61,7 +61,7 @@ Seeed's SSCMA firmware, so the same host code can drive both.
 {"type":1,"name":"INVOKE","code":0,"data":{
   "count":812, "perf":[0,0,16], "resolution":[320,240], "motion":-1, "n":1630,
   "boxes":[[161,120,80,60,100,0]],
-  "track":{"state":"locked","x":161,"y":120,"w":80,"h":60,"psr":45.8,"ms":14},
+  "track":{"state":"locked","x":161,"y":120,"w":80,"h":60,"psr":45.8,"ms":14,"color":1},
   "image":"<base64 JPEG>"}}
 ```
 
@@ -75,12 +75,14 @@ Seeed's SSCMA firmware, so the same host code can drive both.
 |---|---|
 | `TRACK=1[,<w>,<h>[,<x>,<y>]]` | Locks on whatever is in the box of `w`×`h` centred at `x`,`y` (default: the frame centre, a quarter of the frame width, 4:3) at the next live frame. Needs the live view running |
 | `TRACK=0` | Stops tracking |
-| `TRACK?` | `{"state","x","y","w","h","psr"(×10),"ms","frame":[w,h]}` |
+| `TRACK?` | `{"state","x","y","w","h","psr"(×10),"ms","color","frame":[w,h]}` |
+| `TRACKCOLOR=<0-100>` / `TRACKCOLOR?` | Weight of the colour model in the position estimate, in % (default 60; 0 = brightness only). Needs the colour live view (`PREVIEW=0,320,…`). Applies from the next lock-on. Reply: `{"weight","available"}` |
 | `TRACKBTN=<pin>[,<level>]` | A header pin as the lock-on button: 0 PA0, 1 PB6, 2 PB7, -1 off. Pressed = `level` (default 0: a button to GND, with a pull-up). Pressing locks on the centre box, or stops tracking |
 
 - **`state`:** `off`, `armed` (locks on at the next frame) or `locked`. (`lost` appears only in the `TRACK` event: see below.)
 - **`x`, `y`:** the target's centre, in live-frame pixels.
 - **`psr`:** the confidence. Above ~6 is a good lock; below 5.5 for 8 frames in a row (~130 ms at 60 fps) counts as lost.
+- **`color`:** 1 when the colour model took part in this position. It steps back by itself (0) when colour doesn't tell the target from its surroundings: a dull or dark scene, or a target in the background's colours.
 
 **Events:**
 - `TRACK`, on a state change: `{"state","x","y","w","h"}`. When the target is lost the board sends `TRACK` with `"state":"lost"` and the last position, once, and **stops tracking** (state `off` from then on). `TRACK=1` or the button locks on again.
