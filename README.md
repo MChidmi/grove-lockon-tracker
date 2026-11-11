@@ -71,7 +71,7 @@ Measured on the board (QVGA grayscale live view):
    python3 firmware/flash.py firmware/prebuilt/grove-lockon-tracker.img      # --port /dev/ttyACM0
    ```
 
-2. **Open the tracker page:** `web/index.html` (double-click it, or use the GitHub Pages link),
+2. **Open the tracker page:** <https://mchidmi.github.io/grove-lockon-tracker/>, or `web/index.html` (double-click it),
    in Chrome or Edge. Press **Connect**, choose the board (USB Single Serial / CH343), aim the box,
    press **space** to lock. Linux: your user needs to be in the `dialout` group.
 
