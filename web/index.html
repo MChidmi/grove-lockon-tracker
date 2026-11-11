@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lock-on Tracker</title>
+  <meta name="description" content="Lock-on object tracker for the Seeed Grove Vision AI V2, in the browser over Web Serial: no server.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke='%233dff8a' stroke-width='3'%3E%3Cpath d='M3 10V3h7M22 3h7v7M29 22v7h-7M10 29H3v-7'/%3E%3Ccircle cx='16' cy='16' r='3'/%3E%3C/g%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #05080a;
+      --panel: #0a1012;
+      --line: #17322a;
+      --text: #b9f5d0;
+      --dim: #4f7a66;
+      --green: #3dff8a;
+      --amber: #ffb000;
+      --red: #ff2b2b;
+      --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); }
+    body { display: flex; flex-direction: column; min-height: 100vh; }
+    header, footer { display: flex; align-items: center; gap: 16px; padding: 10px 16px; }
+    header { border-bottom: 1px solid var(--line); letter-spacing: 0.18em; font-size: 13px; }
+    header h1 { margin: 0; font-size: 13px; font-weight: 700; color: var(--green); }
+    header .grow { flex: 1; }
+    #link { color: var(--dim); }
+    #link.on { color: var(--green); }
+    #link.demo { color: var(--amber); }
+    main { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 14px 16px 18px; }
+    .scope { position: relative; width: min(100%, calc((100vh - 260px) * 4 / 3), 1100px); aspect-ratio: 4 / 3; min-width: 280px;
+             background: #000; border: 1px solid var(--line); }
+    .scope canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .readout { width: min(100%, 1100px); display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px;
+               background: var(--line); border: 1px solid var(--line); }
+    .readout div { background: var(--panel); padding: 8px 12px; }
+    .readout span { display: block; font-size: 10px; letter-spacing: 0.2em; color: var(--dim); }
+    .readout b { display: block; font-size: 22px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; margin-top: 2px; }
+    #r-state.locked { color: var(--green); } #r-state.lost { color: var(--red); } #r-state.armed { color: var(--amber); }
+    .controls { width: min(100%, 1100px); display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+    .group { display: flex; align-items: center; gap: 6px; }
+    .group > span { font-size: 10px; letter-spacing: 0.2em; color: var(--dim); margin-right: 2px; }
+    button { font: inherit; font-size: 13px; letter-spacing: 0.12em; color: var(--text); background: transparent;
+             border: 1px solid var(--line); padding: 8px 14px; cursor: pointer; text-transform: uppercase; }
+    button:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+    button:disabled { opacity: 0.35; cursor: default; }
+    button.on { border-color: var(--green); color: var(--bg); background: var(--green); }
+    button.primary { border-color: var(--green); color: var(--green); }
+    button.danger { border-color: #5a1e1e; color: #ff8a8a; }
+    #msg { width: min(100%, 1100px); min-height: 1.4em; font-size: 12px; color: var(--amber); letter-spacing: 0.06em; }
+    footer { justify-content: center; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; border-top: 1px solid var(--line); }
+    footer a { color: var(--dim); }
+    kbd { border: 1px solid var(--line); padding: 0 4px; font-family: var(--mono); font-size: 10px; }
+    @media (max-width: 600px) {
+      header { letter-spacing: 0.1em; }
+      #fw { display: none; }
+      .readout b { font-size: 18px; }
+      button { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LOCK-ON TRACKER</h1>
+    <span class="grow"></span>
+    <span id="fw"></span>
+    <span id="link">● OFFLINE</span>
+  </header>
+
+  <main>
+    <div class="scope"><canvas id="hud"></canvas></div>
+
+    <div class="readout">
+      <div><span>STATUS</span><b id="r-state">STANDBY</b></div>
+      <div><span>X</span><b id="r-x">---</b></div>
+      <div><span>Y</span><b id="r-y">---</b></div>
+      <div><span>SIZE</span><b id="r-size">---</b></div>
+      <div><span>CONF</span><b id="r-psr">---</b></div>
+      <div><span>TRK/S</span><b id="r-rate">--</b></div>
+      <div><span>VIDEO/S</span><b id="r-video">--</b></div>
+    </div>
+
+    <div class="controls">
+      <div class="group">
+        <button id="b-connect" class="primary">Connect</button>
+      </div>
+      <div class="group">
+        <button id="b-lock" disabled title="Space">Lock <kbd>␣</kbd></button>
+        <button id="b-release" class="danger" disabled title="Esc">Release</button>
+      </div>
+      <div class="group" id="g-box"><span>BOX</span>
+        <button data-box="6">S</button><button data-box="4">M</button><button data-box="3">L</button>
+      </div>
+      <div class="group" id="g-cam"><span>CAM</span>
+        <button data-cam="30">30</button><button data-cam="60">60</button><button data-cam="70">MAX</button>
+      </div>
+      <div class="group" id="g-video"><span>VIDEO</span>
+        <button data-video="30">ON</button><button data-video="5">LOW</button><button data-video="0">OFF</button>
+      </div>
+    </div>
+    <div id="msg"></div>
+  </main>
+
+  <footer>
+    <span>Chrome / Edge (Web Serial) · board on this computer's USB · <a href="?demo">demo without a board</a> ·
+      <a href="https://github.com/MChidmi/grove-lockon-tracker">source</a></span>
+  </footer>
+
+  <script src="grove-link.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

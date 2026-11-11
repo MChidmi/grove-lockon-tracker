@@ -78,12 +78,12 @@ Seeed's SSCMA firmware, so the same host code can drive both.
 | `TRACK?` | `{"state","x","y","w","h","psr"(×10),"ms","frame":[w,h]}` |
 | `TRACKBTN=<pin>[,<level>]` | A header pin as the lock-on button: 0 PA0, 1 PB6, 2 PB7, -1 off. Pressed = `level` (default 0: a button to GND, with a pull-up). Pressing locks on the centre box, or stops tracking |
 
-- **`state`:** `off`, `armed` (locks on at the next frame), `locked` or `lost`.
+- **`state`:** `off`, `armed` (locks on at the next frame) or `locked`. (`lost` appears only in the `TRACK` event: see below.)
 - **`x`, `y`:** the target's centre, in live-frame pixels.
-- **`psr`:** the confidence. Above ~6 is a good lock; below 5.5 for 3 frames counts as lost.
+- **`psr`:** the confidence. Above ~6 is a good lock; below 5.5 for 8 frames in a row (~130 ms at 60 fps) counts as lost.
 
 **Events:**
-- `TRACK`, on a state change: `{"state","x","y","w","h"}`.
+- `TRACK`, on a state change: `{"state","x","y","w","h"}`. When the target is lost the board sends `TRACK` with `"state":"lost"` and the last position, once, and **stops tracking** (state `off` from then on). `TRACK=1` or the button locks on again.
 - `TRACKPOS`, for every frame that isn't sent as a whole: `{"n", "boxes", "track":{…}}`. Together with `INVOKE`, that gives the target position for every camera frame. With `VIDEO=0` and nothing tracked, a `TRACKPOS` with `"track":{"state":"off"}` comes every 0.5 s as a sign of life.
 
 ## Motion detection

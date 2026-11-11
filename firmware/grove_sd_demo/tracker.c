@@ -37,7 +37,7 @@
 #define REG         0.01f          /* regularisation of the filter */
 #define PSR_LOST    5.5f           /* below this the target counts as lost */
 #define PSR_GOOD    7.0f           /* above this a lost target counts as found again */
-#define LOST_FRAMES 3
+#define LOST_FRAMES 8              /* ~130 ms at 60 fps: one blurred frame doesn't count */
 #define SCALE_STEP  1.05f
 #define SCALE_DAMP  0.6f           /* fraction of a scale step applied per frame */
 #define MIN_SIZE    12

@@ -174,7 +174,7 @@ function renderStatus() {
   $('#opt-live-size').value = String(stream?.size ?? 320);
   $('#opt-cam-fps').value = String(stream?.fps ?? 60);
   $('#opt-video').value = String(stream?.video ?? 30);
-  if (ui.info?.flavor === 'grove-sd') $('#live-model').textContent = liveLine(ui.info, {});
+  if (ui.flavor === 'grove-sd') $('#live-model').textContent = liveLine(ui.info, {});
 
   let stage = '';
   if (ui.link && s?.state === 'ready' && !streams) {
@@ -355,6 +355,14 @@ function drawTrack(d, w, h, scale) {
   const state = t?.state ?? 'off';
   ctx.save();
   ctx.lineWidth = 2 * scale;
+  if (state === 'off' && ui.targetLost && Math.floor(Date.now() / 400) % 2 === 0) {
+    ctx.save();
+    ctx.font = `bold ${Math.round(28 * scale)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff2b2b';
+    ctx.fillText('TARGET LOST', w / 2, h * 0.18);
+    ctx.restore();
+  }
   if (state === 'off' || state === 'armed') {
     const div = Number($('#track-size').value) || 4;
     const bw = state === 'armed' ? t.w : Math.round(w / div), bh = state === 'armed' ? t.h : Math.round((bw * 3) / 4);
@@ -426,9 +434,9 @@ function draw() {
   const lw = Math.max(2, 3 * scale);
   const min = ui.minScore;
 
-  if (ui.info?.flavor === 'grove-sd') drawTrack(d, w, h, scale);
+  if (ui.flavor === 'grove-sd') drawTrack(d, w, h, scale);
   for (const [x, y, bw, bh, score, t] of d.boxes ?? []) {
-    if (ui.info?.flavor === 'grove-sd') break;          // drawn by drawTrack
+    if (ui.flavor === 'grove-sd') break;                // drawn by drawTrack
     if (score < min) continue;
     ctx.lineWidth = lw;
     box(x, y, bw, bh, score, t, scale);
@@ -482,8 +490,11 @@ function renderInfo() {
   const v = i.version ?? {};
 
   // Seeed's firmware gets the detection controls; the SD demo firmware gets the Files tab.
-  const sdFw = i.flavor === 'grove-sd';
-  for (const node of document.querySelectorAll('[data-flavor]')) node.hidden = node.dataset.flavor !== (i.flavor ?? 'sscma');
+  // Which firmware: remember the last one seen, so a disconnect (empty info) doesn't bring
+  // back the other firmware's cards; until a firmware has been seen, show neither set.
+  if (i.flavor) ui.flavor = i.flavor;
+  const sdFw = ui.flavor === 'grove-sd';
+  for (const node of document.querySelectorAll('[data-flavor]')) node.hidden = !ui.flavor || node.dataset.flavor !== ui.flavor;
   $('#files-needs-fw').hidden = sdFw || !i.flavor;
   $('#files-body').hidden = !sdFw;
   $('#files-fw-name').textContent = v.software ? `${i.name ?? 'firmware'} ${v.software}` : 'another firmware';
@@ -787,7 +798,7 @@ const fileUrl = (path, inline) => `/api/sd/file?path=${encodeURIComponent(path)}
 const emptyRow = (text) => el('tr', {}, el('td', { colSpan: 4, className: 'empty', textContent: text }));
 
 function openFiles() {
-  if (ui.info?.flavor !== 'grove-sd') return;
+  if (ui.flavor !== 'grove-sd') return;
   if (!ui.files.loaded) loadDir(ui.files.path);
   if (!ui.capShown) showLastCapture();
 }
@@ -1069,8 +1080,9 @@ const handlers = {
     }
   },
   track({ data }) {
-    renderTrack(data);
-    if (data.state === 'lost') toast('Tracking: target lost; it keeps looking around the last position', true);
+    renderTrack(data.state === 'lost' ? { state: 'off' } : data);
+    if (data.state === 'lost') ui.targetLost = true;           // flashes until the next lock-on
+    if (data.state === 'locked' || data.state === 'armed') ui.targetLost = false;
   },
   motion({ data }) {
     if (ui.motion) ui.motion = { ...ui.motion, last: data, events: (ui.motion.events ?? 0) + 1 };

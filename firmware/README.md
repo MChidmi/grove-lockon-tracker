@@ -180,7 +180,7 @@ Measured:
 
 ```sh
 python3 sim/fake_board.py --sd /tmp/fake-sd --demo 2 --link /tmp/grove-sim
-SERIAL_PORT=/tmp/grove-sim PORT=3001 node ../server.js
+SERIAL_PORT=/tmp/grove-sim PORT=3001 node ../test/full-web-ui/server.js   # the full test interface
 ```
 
 ## Status

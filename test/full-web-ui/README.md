@@ -1,10 +1,16 @@
-# Web interface
+# Full web interface (test / development)
 
-A small Node.js website for the Seeed Grove Vision AI V2 (SSCMA firmware) connected over USB.
+> **The project's main page is [`web/`](../../web/)**: the lock-on tracker in the browser, with no
+> server. This folder is the larger development interface. It needs Node.js, a server holding the
+> serial port, and (for object suggestion) Python with OpenCV. Run everything below from this
+> folder. Only one program can hold the board's serial port: stop this server before using `web/`.
+
+A small Node.js website for the Seeed Grove Vision AI V2 connected over USB, for Seeed's SSCMA
+firmware or this project's firmware.
 
 - **Preview**: the live camera feed with detection boxes, labels and scores. It also shows the frame rate and inference time, and has a score filter and a snapshot button.
 - **Settings**: device info, camera resolution, model slot, the board's detection thresholds (read-only), the LED trigger rule, reboot, releasing the serial port, watchdog history, and an AT command console.
-- **Files**: browse, upload, download, rename and delete files on the board's SD card, and capture photos to it at any size from 160×120 to 2592×1936. VGA 640×480 is the default, and the board saves it directly. This needs the custom firmware in [`firmware/`](../firmware/README.md). The site detects which firmware is on the board and shows the matching tabs.
+- **Files**: browse, upload, download, rename and delete files on the board's SD card, and capture photos to it at any size from 160×120 to 2592×1936. VGA 640×480 is the default, and the board saves it directly. This needs the custom firmware in [`firmware/`](../../firmware/README.md). The site detects which firmware is on the board and shows the matching tabs.
 
 
 ## Object suggestion before lock-on

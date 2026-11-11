@@ -583,6 +583,12 @@ static void track_poll(void)
     track_update(g_gray, g_gray_w, g_gray_h, &g_track);
     g_track_ms = millis() - t0;
     track_event(g_track.state);
+    if (g_track.state == TRACK_LOST) {
+        /* Lost: the TRACK event above said so once (with the last position); stop tracking
+         * rather than keep searching. A new TRACK=1 (or the button) locks on again. */
+        track_stop();
+        g_track_last_state = TRACK_OFF;
+    }
 }
 
 /* The lock-on button: a header pin, read every few ms from the main loop. Pressing it arms

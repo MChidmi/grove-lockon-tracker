@@ -525,8 +525,11 @@ export class Grove extends EventEmitter {
       this.emit('notice', err.message);
       return null;
     });
+    if (!this.port) throw new Error('The board is not connected');
     const version = await q('VER?');
-    this.flavor = version?.firmware === 'grove-sd' ? 'grove-sd' : 'sscma';
+    // No answer says nothing about which firmware it is: keep the last one seen. (Taking it as
+    // Seeed's firmware showed that firmware's cards whenever Refresh got no reply.)
+    if (version) this.flavor = version.firmware === 'grove-sd' ? 'grove-sd' : 'sscma';
     if (this.flavor === 'grove-sd') {
       // Our own SD demo firmware (firmware/grove_sd_demo): no models or detection.
       await q(`TIME=${toBoardTime()}`);

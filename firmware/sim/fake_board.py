@@ -6,7 +6,7 @@ same protocol as firmware/grove_sd_demo (see proto.h and sdcmd.c), with a local 
 standing in for the SD card, and for demo 2 a synthetic camera.
 
     python3 fake_board.py --sd /tmp/fake-sd --demo 2 --link /tmp/grove-sim
-    SERIAL_PORT=/tmp/grove-sim npm start
+    SERIAL_PORT=/tmp/grove-sim npm start        # in test/full-web-ui
 
 --slow limits output to the real link speed (921600 baud, about 92 KB/s).
 """
