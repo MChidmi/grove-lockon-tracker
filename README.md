@@ -74,6 +74,9 @@ Measured on the board (QVGA grayscale live view):
 2. **Open the tracker page:** <https://mchidmi.github.io/grove-lockon-tracker/>, or `web/index.html` (double-click it),
    in Chrome or Edge. Press **Connect**, choose the board (USB Single Serial / CH343), aim the box,
    press **space** to lock. Linux: your user needs to be in the `dialout` group.
+   **Android:** Chrome, with the board on a USB-C OTG cable or adapter. Chrome on Android doesn't list
+   USB serial ports, so the page drives the board's USB chip itself over WebUSB (`web/usb-serial.js`).
+   Close other apps that use the board first.
 
 3. **Or track from a script:**
 
@@ -134,7 +137,7 @@ firmware/
   build.sh, flash.py    build / flash (XMODEM, no buttons)
   prebuilt/             ready-to-flash images
   sim/                  fake board, tracker test rig
-web/                    the tracker page: index.html, app.js, grove-link.js (static, Web Serial)
+web/                    the tracker page: index.html, app.js, grove-link.js, usb-serial.js (static; Web Serial or WebUSB)
 examples/               track_print.py
 docs/                   AT-COMMANDS.md
 test/

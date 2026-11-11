@@ -16,7 +16,7 @@ const savePrefs = () => { try { localStorage.setItem('lockon-prefs', JSON.string
 // ---- state --------------------------------------------------------------------------------
 const ui = {
   link: null,            // GroveLink or DemoBoard
-  port: null, reader: null, writer: null,
+  conn: null,            // the open connection (serial or USB)
   connecting: false,
   frameW: 320, frameH: 240,
   bitmap: null, decoding: false,
@@ -109,37 +109,112 @@ function attach(link) {
   link.addEventListener('track', onTrack);
 }
 
-// ---- connect -------------------------------------------------------------------------------
-async function connect() {
-  if (!('serial' in navigator)) {
-    msg('This browser has no Web Serial. Use Chrome or Edge on a desktop computer, or try the demo (link below).', true);
-    return;
-  }
+// ---- connect ----------------------------------------------------------------------------
+// Two ways to reach the board's USB serial chip:
+// - Web Serial (Chrome / Edge on a computer), through the OS's serial driver;
+// - WebUSB (Chrome on Android, whose Web Serial doesn't list USB devices), driving the chip
+//   directly (usb-serial.js).
+// Both give the same connection: { kind, write(bytes), start(onData, onError), close() }.
+const isAndroid = /Android/i.test(navigator.userAgent);
+const useUsb = 'usb' in navigator && (isAndroid || !('serial' in navigator));
+
+async function openSerial() {
   let port;
   try {
     port = await navigator.serial.requestPort({ filters: [USB_FILTER] });
   } catch (err) {
-    if (err.name === 'NotFoundError') { msg('No board chosen. Plug the Grove Vision AI V2 into this computer, then Connect.'); return; }
+    if (err.name === 'NotFoundError') return null;
     throw err;
   }
-  ui.connecting = true;
-  renderButtons();
   try {
     await port.open({ baudRate: 921600, bufferSize: 1 << 20 });
   } catch (err) {
-    ui.connecting = false;
-    renderButtons();
-    msg(`Could not open the port (${err.message}). Is another program using it (the web UI server, a serial monitor)?`, true);
+    throw new Error(`Could not open the port (${err.message}). Is another program using it (the test web UI server, a serial monitor)?`);
+  }
+  const writer = port.writable.getWriter();
+  let reader = null, closed = false;
+  return {
+    kind: 'serial', device: port,
+    write: (bytes) => writer.write(bytes),
+    async start(onData, onError) {
+      while (port.readable && !closed) {
+        reader = port.readable.getReader();
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) onData(value);
+          }
+        } catch (err) {
+          if (!closed) onError(err);        // e.g. a buffer overrun: keep reading
+        } finally {
+          reader.releaseLock();
+        }
+      }
+    },
+    async close() {
+      closed = true;
+      try { await reader?.cancel(); } catch { /* fine */ }
+      try { writer.releaseLock(); } catch { /* fine */ }
+      try { await port.close(); } catch { /* fine */ }
+    },
+  };
+}
+
+async function openUsb() {
+  let usb;
+  try {
+    usb = await UsbSerialPort.request(USB_FILTER);
+  } catch (err) {
+    if (err.name === 'NotFoundError') return null;
+    throw err;
+  }
+  try {
+    await usb.open(921600);
+  } catch (err) {
+    await usb.close().catch(() => {});
+    try { await usb.device.close(); } catch { /* fine */ }
+    throw new Error(`Could not open the board over USB (${err.message}). Close other apps that use it (serial terminals), unplug and replug it, then Connect again.`);
+  }
+  return {
+    kind: 'usb', device: usb.device,
+    write: (bytes) => usb.write(bytes),
+    start: (onData, onError) => usb.readLoop(onData, onError),
+    close: () => usb.close(),
+  };
+}
+
+async function connect() {
+  if (!useUsb && !('serial' in navigator)) {
+    msg('This browser can reach neither serial ports nor USB. Use Chrome or Edge (on Android: Chrome), or try the demo (link below).', true);
     return;
   }
-  ui.port = port;
-  ui.writer = port.writable.getWriter();
-  const link = new GroveLink((bytes) => ui.writer.write(bytes));
+  ui.connecting = true;
+  renderButtons();
+  let conn;
+  try {
+    conn = await (useUsb ? openUsb() : openSerial());
+  } catch (err) {
+    ui.connecting = false;
+    renderButtons();
+    msg(err.message, true);
+    return;
+  }
+  if (!conn) {
+    ui.connecting = false;
+    renderButtons();
+    msg(useUsb
+      ? 'No board chosen. Plug the Grove Vision AI V2 in (on a phone: a USB-C OTG cable or adapter), close other apps using it, then Connect.'
+      : 'No board chosen. Plug the Grove Vision AI V2 into this computer, then Connect.');
+    return;
+  }
+  ui.conn = conn;
+  const link = new GroveLink((bytes) => conn.write(bytes));
   attach(link);
-  readLoop(port, link);
+  conn.start((bytes) => link.feed(bytes), (err) => { if (ui.conn === conn) msg(`${conn.kind === 'usb' ? 'USB' : 'Serial'} error: ${err.message}`, true); });
   setLink('CONNECTING');
   msg('The board restarts when the port opens…');
-  await link.waitReady(8000);
+  await link.waitReady(conn.kind === 'usb' ? 4000 : 8000);
   try {
     const ver = await link.command('VER?');
     if (ver.firmware !== 'grove-sd' || (ver.demo ?? 1) < 2) {
@@ -148,33 +223,15 @@ async function connect() {
     $('#fw').textContent = (ver.software || '').toUpperCase();
     ui.link = link;
     await startStream();
-    setLink('LINK', 'on');
+    setLink(conn.kind === 'usb' ? 'LINK · USB' : 'LINK', 'on');
     msg('Aim the box at the target, then LOCK (space).');
   } catch (err) {
     msg(err.message, true);
-    await disconnect();
+    ui.link = link;
+    await disconnect(true);
   } finally {
     ui.connecting = false;
     renderButtons();
-  }
-}
-
-async function readLoop(port, link) {
-  while (port.readable) {
-    const reader = port.readable.getReader();
-    ui.reader = reader;
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) link.feed(value);
-      }
-    } catch (err) {
-      if (ui.port === port) msg(`Serial error: ${err.message}`, true);   // e.g. a buffer overrun: keep reading
-    } finally {
-      reader.releaseLock();
-    }
-    if (ui.port !== port) break;
   }
 }
 
@@ -186,9 +243,10 @@ async function startStream() {
   await ui.link.command('INVOKE=-1,0,0', 5000);
 }
 
-async function disconnect() {
-  const link = ui.link, port = ui.port;
+async function disconnect(keepMessage = false) {
+  const link = ui.link, conn = ui.conn;
   ui.link = null;
+  ui.conn = null;
   ui.track = { state: 'off' };
   ui.lost = null;
   if (link) {
@@ -196,16 +254,11 @@ async function disconnect() {
     try { await link.command('BREAK', 800); } catch { /* fine */ }
     link.stop?.();
   }
-  ui.port = null;
-  if (port) {
-    try { await ui.reader?.cancel(); } catch { /* fine */ }
-    try { ui.writer?.releaseLock(); } catch { /* fine */ }
-    try { await port.close(); } catch { /* fine */ }
-  }
-  ui.writer = ui.reader = null;
+  if (conn) await conn.close();
   ui.bitmap = null;
   $('#fw').textContent = '';
   setLink('OFFLINE');
+  if (!keepMessage && conn) msg('');
   renderButtons();
 }
 
@@ -252,9 +305,12 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); if (ui.track.state === 'locked' || ui.track.state === 'armed') release(); else lock(); }
   if (e.code === 'Escape') release();
 });
-navigator.serial?.addEventListener?.('disconnect', (e) => {
-  if (ui.port && e.target === ui.port) { msg('The board was unplugged.', true); disconnect(); }
-});
+const unplugged = (e) => {
+  const dev = e.device ?? e.target;
+  if (ui.conn && dev === ui.conn.device) { disconnect(true); msg('The board was unplugged.', true); }
+};
+navigator.serial?.addEventListener?.('disconnect', unplugged);
+navigator.usb?.addEventListener?.('disconnect', unplugged);
 
 // ---- HUD ------------------------------------------------------------------------------------
 const GREEN = '61,255,138', AMBER = '255,176,0', RED = '255,43,43', WHITE = '220,240,230';
