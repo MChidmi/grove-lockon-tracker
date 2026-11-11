@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grove Vision</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232f6fed' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span>Grove Vision <em>AI V2</em></span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="preview" aria-selected="true">Preview</button>
+      <button role="tab" data-tab="files" aria-selected="false">Files</button>
+      <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
+    <div id="status" class="pill" data-tone="warn"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main>
+    <section id="tab-preview" class="tab-panel preview">
+      <div class="stage-col">
+        <div class="stage">
+          <canvas id="view" width="640" height="480"></canvas>
+          <div id="stage-msg" class="stage-msg">Connecting…</div>
+        </div>
+        <div class="toolbar">
+          <button id="btn-stream" class="btn primary" disabled>Pause</button>
+          <label class="switch"><input type="checkbox" id="opt-image" checked><span>Camera image</span></label>
+          <label class="switch" data-flavor="grove-sd"><input type="checkbox" id="opt-gray" checked><span>Grayscale (faster)</span></label>
+          <select id="opt-live-size" data-flavor="grove-sd" title="Live view size">
+            <option value="320" selected>QVGA 320×240</option>
+            <option value="640">VGA 640×480</option>
+          </select>
+          <select id="opt-cam-fps" data-flavor="grove-sd" title="Camera frame rate (lower = longer exposure, for dark scenes)">
+            <option value="70">Camera max (68 fps)</option>
+            <option value="60" selected>Camera 60 fps</option>
+            <option value="45">Camera 45 fps</option>
+            <option value="30">Camera 30 fps</option>
+            <option value="15">Camera 15 fps</option>
+          </select>
+          <select id="opt-video" data-flavor="grove-sd" title="Live video sent over USB (less video = tracking results arrive sooner)">
+            <option value="30" selected>Video 30/s</option>
+            <option value="10">Video 10/s</option>
+            <option value="2">Video 2/s</option>
+            <option value="0">Video off (positions only)</option>
+          </select>
+          <label class="switch"><input type="checkbox" id="opt-labels" checked><span>Labels</span></label>
+          <span class="grow"></span>
+          <button id="btn-snapshot" class="btn">Save snapshot</button>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="card">
+          <h2>Live</h2>
+          <div class="stats">
+            <div><span class="stat-value" id="stat-fps">–</span><span class="stat-label">frames/s</span></div>
+            <div data-flavor="grove-sd"><span class="stat-value" id="stat-proc">–</span><span class="stat-label">processed/s</span></div>
+            <div data-flavor="sscma"><span class="stat-value" id="stat-infer">–</span><span class="stat-label">inference ms</span></div>
+            <div data-flavor="sscma"><span class="stat-value" id="stat-pre">–</span><span class="stat-label">preprocess ms</span></div>
+          </div>
+          <p class="meta-line" id="live-model">–</p>
+        </div>
+
+        <div class="card" data-flavor="grove-sd" id="track-card">
+          <h2>Tracking <span class="badge" id="track-state"></span></h2>
+          <label class="field"><span>Lock-on box</span>
+            <select id="track-size">
+              <option value="4" selected>Centre · ¼ of the width</option>
+              <option value="3">Centre · ⅓ of the width</option>
+              <option value="2">Centre · ½ of the width</option>
+            </select>
+          </label>
+          <label class="switch"><input type="checkbox" id="track-snap" checked><span>Snap to the object</span></label>
+          <p class="meta-line" id="track-suggest">–</p>
+          <div class="row">
+            <button class="btn primary" id="btn-track">Lock on</button>
+            <button class="btn" id="btn-track-stop" hidden>Stop</button>
+          </div>
+          <dl class="dl" id="track-dl"></dl>
+          <label class="field"><span>Button pin</span>
+            <select id="track-pin">
+              <option value="" selected>None</option>
+              <option value="PA0">PA0 · XIAO header</option>
+              <option value="PB6">PB6 · XIAO header (UART RX)</option>
+              <option value="PB7">PB7 · XIAO header (UART TX)</option>
+            </select>
+          </label>
+          <p class="hint">While you aim, the server guesses which object you mean inside the dashed box and outlines
+            it (green: likely, yellow: maybe). With "Snap to the object", Lock on takes that tight box, so the tracker
+            learns the object and not the background; otherwise the whole dashed box.
+            The board then reports the target's centre (x, y in the live frame), size and confidence with every frame, and keeps the lock through
+            movement, rotation, deformation and size changes. A hardware button on the pin (to GND, with a pull-up
+            to 3.3 V) locks on or stops.</p>
+        </div>
+
+        <div class="card" data-flavor="grove-sd" id="motion-card">
+          <h2>Motion <span class="badge" id="motion-badge"></span></h2>
+          <label class="switch"><input type="checkbox" id="motion-on"><span>Detect motion</span></label>
+          <label class="field"><span>On motion</span>
+            <select id="motion-action">
+              <option value="nothing" selected>Nothing</option>
+              <option value="save">Save image (VGA photo to /MOTION)</option>
+              <option value="pulse">Send a pulse on a pin</option>
+            </select>
+          </label>
+          <div id="motion-pulse-opts" hidden>
+            <label class="field"><span>Pin</span>
+              <select id="motion-pin">
+                <option value="PA0" selected>PA0 · XIAO header (Seeed's "data ready" line)</option>
+                <option value="PB6">PB6 · XIAO header UART RX</option>
+                <option value="PB7">PB7 · XIAO header UART TX</option>
+              </select>
+            </label>
+            <label class="field"><span>Pulse length (ms)</span>
+              <input type="number" id="motion-ms" min="1" max="10000" step="1" value="100">
+            </label>
+          </div>
+          <label class="range">
+            <span>Sensitivity <output id="motion-sens-out">50</output></span>
+            <input type="range" id="motion-sens" min="1" max="100" step="1" value="50">
+          </label>
+          <div class="row"><button class="btn" id="btn-motion-test">Test action</button></div>
+          <p class="meta-line" id="motion-live">Off</p>
+          <p class="hint">The board compares each live frame with what it has learned the scene looks like, so it only
+            works while the live view runs. Exposure changes are ignored. At most one event every 2 s. The pin is 3.3 V,
+            high for the pulse length, and only driven while "Send a pulse" is selected.</p>
+        </div>
+
+        <div class="card" data-flavor="sscma">
+          <h2>Results <span class="badge" id="det-count"></span></h2>
+          <label class="range">
+            <span>Show from <output id="min-score-out">0</output>%</span>
+            <input type="range" id="min-score" min="0" max="100" step="1" value="0">
+          </label>
+          <p class="hint" id="tscore-hint"></p>
+          <ul id="det-list" class="det-list"><li class="empty">Nothing detected</li></ul>
+        </div>
+      </aside>
+    </section>
+
+    <section id="tab-files" class="tab-panel files" hidden>
+      <div id="files-needs-fw" class="card notice" hidden>
+        <h2>SD card</h2>
+        <p>The SD card is reached through the Grove SD demo firmware. The board is running
+          <strong id="files-fw-name">another firmware</strong> right now.</p>
+        <p class="hint">Flash <code>firmware/out/grove-sd-demo1.img</code> (files) or
+          <code>grove-sd-demo2.img</code> (files and camera capture). See <code>firmware/README.md</code>.</p>
+      </div>
+
+      <div id="files-body" class="files-layout">
+        <aside class="side">
+          <div class="card">
+            <h2>SD card</h2>
+            <dl id="sd-dl" class="dl"></dl>
+            <div class="meter" id="sd-meter" hidden><span></span></div>
+            <div class="row">
+              <button class="btn" id="btn-sd-refresh">Refresh</button>
+              <button class="btn" id="btn-sd-mount">Mount again</button>
+              <button class="btn danger" id="btn-sd-format">Format…</button>
+            </div>
+            <p class="hint">Use "Mount again" after swapping the card. Format erases everything on it.</p>
+          </div>
+
+          <div class="card" id="capture-card">
+            <h2>Capture</h2>
+            <label class="field"><span>Size</span>
+              <select id="cap-size">
+                <option value="2592x1936">5 MP 2592×1936 · full sensor</option>
+                <option value="2560x1440">QHD 2560×1440 · centre crop</option>
+                <option value="2048x1536">QXGA 2048×1536 · centre crop</option>
+                <option value="1920x1080">Full HD 1920×1080 · centre crop</option>
+                <option value="1600x1200">UXGA 1600×1200 · centre crop</option>
+                <option value="1280x960">SXGA 1280×960 · whole view</option>
+                <option value="1280x720">HD 1280×720 · whole width</option>
+                <option value="1024x768">XGA 1024×768 · whole view</option>
+                <option value="800x600">SVGA 800×600 · whole view</option>
+                <option value="640x480" selected>VGA 640×480 · whole view · saved directly</option>
+                <option value="320x240">QVGA 320×240 · whole view · saved directly</option>
+                <option value="160x120">QQVGA 160×120 · whole view</option>
+              </select>
+            </label>
+            <div class="row"><button class="btn primary" id="btn-capture">Capture to SD card</button></div>
+            <p class="hint" id="cap-hint">The board saves the photo as 640×480 tiles. This server joins them and saves
+              <code>full.jpg</code> next to them on the card. VGA and QVGA are a single picture that the board saves
+              as <code>full.jpg</code> itself, with no joining. Sizes up to 1280×960 show the camera's whole view.
+              Larger sizes are a native-pixel crop from the centre of the sensor (up to 25 tiles, about 30 s).</p>
+            <div id="cap-result" class="cap-result" hidden>
+              <a id="cap-link" target="_blank" rel="noopener"><img id="cap-img" alt="Last capture"></a>
+              <dl id="cap-dl" class="dl"></dl>
+            </div>
+          </div>
+        </aside>
+
+        <div class="card file-card">
+          <div class="file-toolbar">
+            <nav id="crumbs" class="crumbs" aria-label="Folder"></nav>
+            <span class="grow"></span>
+            <button class="btn small" id="btn-up" title="Parent folder">Up</button>
+            <button class="btn small" id="btn-newdir">New folder</button>
+            <label class="btn small primary upload-btn">Upload<input type="file" id="upload-input" multiple hidden></label>
+            <button class="btn small" id="btn-ls">Refresh</button>
+          </div>
+          <div id="transfers" class="transfers"></div>
+          <div class="table-wrap">
+            <table class="files-table">
+              <thead><tr><th>Name</th><th class="num">Size</th><th>Modified</th><th></th></tr></thead>
+              <tbody id="file-rows"><tr><td colspan="4" class="empty">Open the Files tab to load the card</td></tr></tbody>
+            </table>
+          </div>
+          <p class="hint">Files cross the board's USB serial link at about 55–60 KB/s, so a 1 MB file takes about 18 s.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel settings" hidden>
+      <div class="grid">
+        <div class="card">
+          <h2>Device</h2>
+          <dl id="device-dl" class="dl"></dl>
+          <div class="row">
+            <button class="btn" id="btn-refresh">Refresh</button>
+            <button class="btn danger" id="btn-reboot">Reboot board</button>
+          </div>
+        </div>
+
+        <div class="card" data-flavor="sscma">
+          <h2>Camera</h2>
+          <label class="field"><span>Sensor</span><select id="sensor-select"></select></label>
+          <label class="field"><span>Resolution</span><select id="opt-select"></select></label>
+          <div class="row"><button class="btn primary" id="btn-sensor">Apply</button></div>
+          <p class="hint">Bigger frames take longer to send over USB, so the preview frame rate drops.</p>
+        </div>
+
+        <div class="card" data-flavor="sscma">
+          <h2>Model</h2>
+          <label class="field"><span>Model slot</span><select id="model-select"></select></label>
+          <dl id="model-dl" class="dl"></dl>
+          <div id="model-classes" class="chips"></div>
+          <div class="row"><button class="btn primary" id="btn-model">Load model</button></div>
+          <p class="hint">To install a different model, release the port under Connection, flash it with SenseCraft AI, then reconnect.</p>
+        </div>
+
+        <div class="card" data-flavor="sscma">
+          <h2>Detection thresholds</h2>
+          <dl id="algo-dl" class="dl"></dl>
+          <p class="hint">This firmware has no command to change these. To hide low-scoring results, use the "Show from" slider on Preview.</p>
+        </div>
+
+        <div class="card wide" data-flavor="sscma">
+          <h2>LED trigger</h2>
+          <p class="hint">The board checks this rule on every frame while inference runs.</p>
+          <div class="builder">
+            <span>Light the LED when</span>
+            <select id="act-class"></select>
+            <span>scores at least</span>
+            <span class="num"><input type="number" id="act-score" min="0" max="100" step="1" value="72">%</span>
+          </div>
+          <code id="act-preview" class="code"></code>
+          <div class="row"><button class="btn primary" id="btn-action">Save rule</button></div>
+          <details class="raw">
+            <summary>Edit the raw expression</summary>
+            <textarea id="act-raw" rows="2" spellcheck="false"></textarea>
+            <p class="hint warn">The board accepts any text here without checking it, so a typo just stops the LED from working.</p>
+            <div class="row"><button class="btn" id="btn-action-raw">Save expression</button></div>
+          </details>
+          <div class="current"><span class="hint">On the board now:</span> <span id="act-summary"></span> <code id="act-current" class="code inline"></code></div>
+          <div class="row led-test">
+            <span class="hint">LED test:</span>
+            <button class="btn small" data-led="1">On</button>
+            <button class="btn small" data-led="0">Off</button>
+            <span class="hint">Pause the preview first, or the trigger rule switches it straight back.</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Connection</h2>
+          <dl id="conn-dl" class="dl"></dl>
+          <div class="row">
+            <button class="btn" id="btn-release">Release port</button>
+            <button class="btn" id="btn-connect">Reconnect</button>
+          </div>
+          <p class="hint">Releasing the port lets another program, like SenseCraft AI, use the board. Connecting again reboots the board.</p>
+        </div>
+
+        <div class="card wide">
+          <h2>Console</h2>
+          <form id="console-form" class="console-form" autocomplete="off">
+            <span class="prompt">AT+</span>
+            <input id="console-input" placeholder="HELP?" spellcheck="false" aria-label="AT command">
+            <button class="btn">Send</button>
+          </form>
+          <pre id="log" class="log" aria-live="polite"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# Python helpers (object suggestion before lock-on, lib/suggest_worker.py).
+# Install into the project venv:
+#   python3 -m venv --system-site-packages .venv && .venv/bin/pip install -r requirements.txt
+opencv-python-headless==4.10.0.84
