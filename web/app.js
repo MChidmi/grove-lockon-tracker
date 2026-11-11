@@ -9,7 +9,7 @@ const canvas = $('#hud');
 const ctx = canvas.getContext('2d');
 
 // ---- preferences (per browser) ------------------------------------------------------------
-const prefs = { box: 4, cam: 60, video: 30 };
+const prefs = { box: 4, cam: 60, video: 30, color: true };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem('lockon-prefs') || '{}')); } catch { /* defaults */ }
 const savePrefs = () => { try { localStorage.setItem('lockon-prefs', JSON.stringify(prefs)); } catch { /* fine */ } };
 
@@ -42,6 +42,7 @@ function renderButtons() {
   $('#b-release').disabled = !on || (st === 'off' && !ui.lost);
   for (const b of document.querySelectorAll('#g-box button')) b.classList.toggle('on', Number(b.dataset.box) === prefs.box);
   for (const b of document.querySelectorAll('#g-cam button')) b.classList.toggle('on', Number(b.dataset.cam) === prefs.cam);
+  for (const b of document.querySelectorAll('#g-color button')) b.classList.toggle('on', (b.dataset.color === '1') === prefs.color);
   for (const b of document.querySelectorAll('#g-video button')) b.classList.toggle('on', Number(b.dataset.video) === prefs.video);
 }
 
@@ -236,7 +237,7 @@ async function connect() {
 }
 
 async function startStream() {
-  const p = await ui.link.command(`PREVIEW=1,320,1,${prefs.cam}`);      // grayscale QVGA, fast camera mode
+  const p = await ui.link.command(previewCmd());
   ui.frameW = p.width ?? 320;
   ui.frameH = p.height ?? 240;
   await ui.link.command(`VIDEO=${prefs.video}`);
@@ -285,7 +286,18 @@ async function release() {
 
 async function setCam(fps) {
   prefs.cam = fps; savePrefs(); renderButtons();
-  if (ui.link) try { await ui.link.command(`PREVIEW=1,320,1,${fps}`); } catch (err) { msg(err.message, true); }
+  if (ui.link) try { await ui.link.command(previewCmd()); } catch (err) { msg(err.message, true); }
+}
+
+// QVGA live view in the fast camera mode; colour or grayscale video. The tracker gets the
+// brightness image either way, so only the picture (and its size over USB) changes.
+function previewCmd() {
+  return `PREVIEW=${prefs.color ? 0 : 1},320,1,${prefs.cam}`;
+}
+
+async function setColor(color) {
+  prefs.color = color; savePrefs(); renderButtons();
+  if (ui.link) try { await ui.link.command(previewCmd()); } catch (err) { msg(err.message, true); }
 }
 
 async function setVideo(v) {
@@ -299,6 +311,7 @@ $('#b-lock').addEventListener('click', lock);
 $('#b-release').addEventListener('click', release);
 for (const b of document.querySelectorAll('#g-box button')) b.addEventListener('click', () => { prefs.box = Number(b.dataset.box); savePrefs(); renderButtons(); });
 for (const b of document.querySelectorAll('#g-cam button')) b.addEventListener('click', () => setCam(Number(b.dataset.cam)));
+for (const b of document.querySelectorAll('#g-color button')) b.addEventListener('click', () => setColor(b.dataset.color === '1'));
 for (const b of document.querySelectorAll('#g-video button')) b.addEventListener('click', () => setVideo(Number(b.dataset.video)));
 document.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea')) return;
@@ -346,7 +359,7 @@ function draw() {
   ctx.fillStyle = '#020403';
   ctx.fillRect(0, 0, cw, ch);
   if (ui.bitmap && prefs.video) {
-    ctx.filter = 'contrast(1.1) brightness(0.95)';
+    ctx.filter = 'contrast(1.1) brightness(0.95)' + (prefs.color ? '' : ' grayscale(1)');
     ctx.drawImage(ui.bitmap, 0, 0, cw, ch);
     ctx.filter = 'none';
   } else {
@@ -457,13 +470,13 @@ class DemoBoard extends EventTarget {
     const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(320, 240) : Object.assign(document.createElement('canvas'), { width: 320, height: 240 });
     const g = c.getContext('2d');
     const grd = g.createLinearGradient(0, 0, 0, 240);
-    grd.addColorStop(0, '#6d7a7c'); grd.addColorStop(0.55, '#4b5650'); grd.addColorStop(1, '#2c332d');
+    grd.addColorStop(0, '#7f9bb0'); grd.addColorStop(0.55, '#55684a'); grd.addColorStop(1, '#33402c');
     g.fillStyle = grd; g.fillRect(0, 0, 320, 240);
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 90; i++) {
       const v = 40 + Math.floor(rnd() * 90);
-      g.fillStyle = `rgb(${v},${v + 5},${v})`;
+      g.fillStyle = `rgb(${v + 10},${v + 12},${v - 6})`;
       g.fillRect(rnd() * 320, 120 + rnd() * 120, 4 + rnd() * 30, 2 + rnd() * 10);
     }
     return c;
@@ -505,7 +518,7 @@ class DemoBoard extends EventTarget {
       g.drawImage(this.bg, 0, 0);
       if (!T.hidden) {
         g.save(); g.translate(T.x, T.y); g.rotate(T.a);
-        g.fillStyle = '#d8dcd4'; g.fillRect(-T.r, -T.r * 0.55, T.r * 2, T.r * 1.1);
+        g.fillStyle = '#e0742c'; g.fillRect(-T.r, -T.r * 0.55, T.r * 2, T.r * 1.1);
         g.fillStyle = '#26302a'; g.fillRect(-T.r * 0.3, -T.r * 0.9, T.r * 0.6, T.r * 1.8);
         g.restore();
       }

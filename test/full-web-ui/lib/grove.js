@@ -124,7 +124,7 @@ export class Grove extends EventEmitter {
     this.info = {};
     // gray, size: live view in grayscale and its width, 320 (QVGA) or 640 (VGA). Our
     // grove-sd firmware only; smaller frames give more fps.
-    this.stream = { want: true, running: false, image: true, gray: true, size: 320, fps: 60, video: 30 };
+    this.stream = { want: true, running: false, image: true, gray: false, size: 320, fps: 60, video: 30 };
     // Motion detection on the board's live view (grove-sd firmware): what to do on motion.
     this.motion = { ...MOTION_DEFAULTS };
     this.motionLast = null;
